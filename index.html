@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="/css/bootstrap.min.css" />
+  <script src='/js/bootstrap.bundle.js'></script>
+  <script src="/js/tone.js"></script>
+  <script src="/js/vue.js"></script>
+  <link rel="icon" href="/favicon.ico" type="image/x-icon" />
+  <title>Web貪吃蛇遊戲</title>
+</head>
+
+<body class="d-flex justify-content-center text-center h-100 m-0 bg-dark text-light">
+  <div id="app" class="container">
+    <h3 class="m-0">Web貪吃蛇遊戲</h3>
+    <h4 style="height: 32.1px" v-if="!Game.start">
+      <button type="button" class="btn btn-outline-light btn-sm" data-bs-toggle="modal"
+        data-bs-target="#learder">風雲榜</button>
+    </h4>
+    <h4 style="height: 32.1px" v-if="Game.start">Score: {{score}}</h4>
+    <!-- 風雲榜彈跳視窗 -->
+    <div class="modal fade text-dark" id="learder">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">風雲榜</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body text-left">
+            <ol class="list-group list-group-numbered">
+              <li class="list-group-item d-flex justify-content-between align-items-start">
+                <div class="ms-2 me-auto">
+                  <div class="fw-bold">趙德柱</div>
+                </div>
+                <span class="badge bg-primary rounded-pill">600</span>
+              </li>
+              <li class="list-group-item d-flex justify-content-between align-items-start">
+                <div class="ms-2 me-auto">
+                  <div class="fw-bold">蔡華岳</div>
+                </div>
+                <span class="badge bg-primary rounded-pill">550</span>
+              </li>
+            </ol>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="position-absolute top-50 start-50 translate-middle" v-if="!Game.start">
+      <h2>Score: {{score}}</h2>
+      <button type="button" class="btn btn-outline-light rounded-pill" @click="startGame()">Start Game</button>
+    </div>
+    <div class="position-absolute top-50 start-50 translate-middle" v-if="Game.pause">
+      <h2>暫停</h2>
+    </div>
+    <canvas id="canvas_id" class="mw-100" ref="canvas_id"></canvas>
+    <div class="row" v-if="Game.start">
+      <div class="col-12 mb-2">
+        <button type="button" class="btn btn-outline-light w-100" v-if="!Game.pause" @click="pauseGame()">暫停</button>
+        <button type="button" class="btn btn-outline-light w-100" v-if="Game.pause" @click="pauseGame()">開始</button>
+      </div>
+      <div class="col-4"></div>
+      <div class="col-4">
+        <button type="button" class="btn btn-outline-light w-100" @click="setDirection('Up')">上</button>
+      </div>
+      <div class="col-4"></div>
+      <div class="col-4">
+        <button type="button" class="btn btn-outline-light w-100" @click="setDirection('Left')">左</button>
+      </div>
+      <div class="col-4">
+        <button type="button" class="btn btn-outline-light w-100" @click="setDirection('Down')">下</button>
+      </div>
+      <div class="col-4">
+        <button type="button" class="btn btn-outline-light w-100" @click="setDirection('Right')">右</button>
+      </div>
+    </div>
+  </div>
+  <script>
+    // 生產向量
+    const Vector = function (x, y) {
+      this.x = x || 0;
+      this.y = y || 0;
+    };
+    // 處理向前向量
+    Vector.prototype.add = function (v) {
+      return new Vector(this.x + v.x, this.y + v.y);
+    };
+    // 處理物件向量相等的話就回傳true(如：吃到東西)
+    Vector.prototype.equal = function (v) {
+      return this.x == v.x && this.y == v.y;
+    };
+
+    const vm = new Vue({
+      el: '#app',
+      data: {
+        score: 0,
+        Game: {
+          bw: 12, // 格子大小
+          bs: 2, // 格子間距
+          gameWidth: 40, // 遊戲區長度
+          gameFPS: 1000, // 遊戲刷新速度，正常值：1000
+          timer: 0, // 計時器
+          speed: 30, // 速度
+          foods: [], // 食物位置
+          start: false, // 遊戲開關
+          pause: false, // 暫停
+        },
+        Snake: {
+          body: [], // 蛇身位置存放空間
+          maxLength: 5, // 蛇身長度
+          head: {}, // 蛇頭初始位置
+          speed: {}, // 速度初始方向
+        },
+        // 畫布參數
+        Canvas: {
+          width: 0, // 畫布寬
+          height: 0, // 畫布高
+          ctx: {}, // 畫布本體
+        },
+      },
+      methods: {
+        // 蛇身刷新
+        snakeUpdate() {
+          let newHead = this.Snake.head.add(this.Snake.speed); // 蛇頭位置
+          this.Snake.body.push(this.Snake.head); // 走過的存放到蛇身空間
+          this.Snake.head = newHead;
+          // // 判斷長度將存放蛇身空間多餘的移除
+          while (this.Snake.body.length > this.Snake.maxLength) {
+            this.Snake.body.shift();
+          }
+        },
+        // 方向鍵控制
+        setDirection(dir) {
+          switch (dir) {
+            case 'Up':
+              this.Snake.speed = new Vector(0, -1);
+              break;
+            case 'Down':
+              this.Snake.speed = new Vector(0, 1);
+              break;
+            case 'Left':
+              this.Snake.speed = new Vector(-1, 0);
+              break;
+            case 'Right':
+              this.Snake.speed = new Vector(1, 0);
+              break;
+          }
+        },
+        // 遊戲環境初始化
+        init() {
+          const canvas = this.$refs['canvas_id']; // 取得HTML物件：畫布
+          canvas.width = this.Game.bw * this.Game.gameWidth + this.Game.bs * (this.Game.gameWidth - 1); // 畫布長
+          canvas.height = canvas.width; // 畫布高
+          // 存入vue data
+          this.Canvas.width = canvas.width;
+          this.Canvas.height = canvas.height;
+          this.Canvas.ctx = canvas.getContext('2d'); // 指定畫布
+          this.render(); // 渲染畫布
+          this.generateFood(); // 產生食物
+          this.update(); // 刷新
+        },
+        // 檢查邊界
+        checkBoundary(gameWidth) {
+          let xInRange = 0 <= this.Snake.head.x && this.Snake.head.x < gameWidth;
+          let yInRange = 0 <= this.Snake.head.y && this.Snake.head.y < gameWidth;
+          return xInRange && yInRange;
+        },
+        // 取得向量位置
+        getPosition(x, y) {
+          return new Vector(x * this.Game.bw + (x - 1) * this.Game.bs, y * this.Game.bw + (y - 1) * this.Game.bs);
+        },
+        // 畫格子
+        drawBlock(v, color) {
+          this.Canvas.ctx.fillStyle = color; // 格子顏色
+          const pos = this.getPosition(v.x, v.y); // 取得格子位置
+          this.Canvas.ctx.fillRect(pos.x, pos.y, this.Game.bw, this.Game.bw); // 畫出一個矩形的邊框
+        },
+        // 渲染
+        render() {
+          this.Canvas.ctx.fillStyle = 'rgba(0,0,0,0.3)'; // 畫布顏色
+          this.Canvas.ctx.fillRect(0, 0, this.Canvas.width, this.Canvas.height); // 渲染畫布的邊框
+          // 渲染背景方格
+          for (let x = 0; x < this.Game.gameWidth; x++) {
+            for (let y = 0; y < this.Game.gameWidth; y++) {
+              this.drawBlock(new Vector(x, y), 'rgba(255,255,255,0.03)');
+            }
+          }
+          // 渲染蛇身
+          this.Snake.body.forEach((bodyPos, i) => {
+            this.drawBlock(bodyPos, 'white');
+          });
+          // 渲染食物
+          this.Game.foods.forEach((p) => {
+            this.drawBlock(p, 'red');
+          });
+          // 渲染-食物光標(畫布與光標互相渲染達到光圈效果)
+          requestAnimationFrame(() => {
+            this.render();
+          });
+        },
+        // 生成食物
+        generateFood() {
+          // 隨機指定位置
+          const x = parseInt(Math.random() * this.Game.gameWidth);
+          const y = parseInt(Math.random() * this.Game.gameWidth);
+          this.Game.foods.push(new Vector(x, y)); // 存入食物位置
+          this.drawEffect(x, y); // 繪製食物光標
+          this.playSound('E5', -20);
+          this.playSound('A5', -20, 50);
+        },
+        // 繪製食物光標
+        drawEffect(x, y) {
+          let r = 2; // 中心半徑(越大中間孔洞越大)
+          // 食物光標繪製設定
+          const pos = this.getPosition(x, y);
+          const _this = this;
+          const effect = function () {
+            r++;
+            _this.Canvas.ctx.strokeStyle = 'rgba(255,0,0,' + (100 - r) / 100 + ')'; // 圖形輪廓顏色
+            _this.Canvas.ctx.beginPath(); // 開啟繪圖
+            _this.Canvas.ctx.arc(pos.x + _this.Game.bw / 2, pos.y + _this.Game.bw / 2, r, 0, Math.PI * 2); // 創建圓形
+            _this.Canvas.ctx.stroke(); // 繪製漸變色
+            // 渲染食物光標
+            if (r < 100) requestAnimationFrame(effect);
+          };
+          requestAnimationFrame(effect);
+        },
+        // 刷新(fps)
+        update() {
+          // 捕捉遊戲開始
+          if (this.Game.start) {
+            this.playSound('A2', -30);
+            this.snakeUpdate(); // 刷新蛇身
+            // 判斷蛇是否吃到食物
+            this.Game.foods.forEach((food, i) => {
+              if (this.Snake.head.equal(food)) {
+                this.Snake.maxLength++; // 加長蛇身
+                this.score = (this.Snake.maxLength - 5) * 10;
+                this.Game.foods.splice(i, 1); // 刪除食物(被蛇吃掉)
+                this.generateFood(); // 重新渲染食物
+              }
+            });
+            // 判斷蛇是否吃到自己
+            this.Snake.body.forEach((bp) => {
+              if (bp.equal(this.Snake.head)) this.endGame();
+            });
+            // 判斷蛇是否撞到牆壁
+            if (!this.checkBoundary(this.Game.gameWidth)) this.endGame();
+          }
+          // 依照蛇的長度加快速度
+          this.Game.speed = Math.sqrt(this.Snake.body.length) + 5;
+          // 刷新計時器
+          this.Game.timer = setTimeout(() => {
+            this.update();
+          }, parseInt(this.Game.gameFPS / this.Game.speed));
+        },
+        // 處理遊戲聲音
+        playSound(note, volume, when) {
+          setTimeout(function () {
+            const synth = new Tone.Synth().toMaster();
+            synth.volume = volume || -12;
+            synth.triggerAttackRelease(note, '8n');
+          }, when || 0);
+        },
+        // 開始遊戲
+        startGame() {
+          this.score = 0; // 分數歸零
+          this.Game.start = true; // 開啟遊戲狀態
+          // 初始蛇身
+          this.Snake.body = []; // 蛇身位置存放空間
+          this.Snake.maxLength = 5; // 蛇身長度
+          this.Snake.head = new Vector(); // 蛇頭初始位置
+          this.Snake.speed = new Vector(1, 0); // 速度初始方向
+          // 提示音
+          this.playSound('C#5', -20);
+          this.playSound('E5', -20, 200);
+        },
+        // 暫停遊戲
+        pauseGame() {
+          // 處理暫停
+          if (this.Game.start) {
+            if (!this.Game.pause) {
+              this.Game.pause = true; // 開啟暫停開關
+              clearInterval(this.Game.timer); // 清除計時器
+            } else {
+              this.Game.pause = false; // 關閉暫停開關
+              this.update(); // 繼續刷新
+            }
+          }
+        },
+        // 結束遊戲
+        endGame() {
+          const that = this;
+          this.Game.start = false; // 關閉遊戲狀態
+          this.playSound('A3');
+          this.playSound('E2', -10, 200);
+          this.playSound('A2', 10, 400);
+          setTimeout(function () {
+            const userName = prompt('您的分數為：' + that.score + '\n請輸入您的大名：').trim()
+            if (userName != "" && userName != null) {
+              // 觸動資料庫
+              console.log("使用者名稱：" + userName);
+              console.log("分數為" + that.score);
+            }
+          }, 500);
+        },
+      },
+      mounted() {
+        const that = this; // 調用vue data
+        this.init();
+        // 監聽鍵盤事件，方向鍵控制
+        document.addEventListener('keydown', function (e) {
+          let res;
+          switch (e.keyCode) {
+            case 38:
+              res = e.key.replace('Arrow', '');
+              break;
+            case 40:
+              res = e.key.replace('Arrow', '');
+              break;
+            case 37:
+              res = e.key.replace('Arrow', '');
+              break;
+            case 39:
+              res = e.key.replace('Arrow', '');
+              break;
+            case 32:
+              that.pauseGame();
+              break;
+            default:
+              console.log(`您按到無效按鍵，鍵值為${e.key.replace('Arrow', '')}`);
+              return;
+          }
+          that.setDirection(res);
+        });
+      },
+    });
+  </script>
+</body>
+
+</html>
