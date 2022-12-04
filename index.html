@@ -31,17 +31,11 @@
           </div>
           <div class="modal-body text-left">
             <ol class="list-group list-group-numbered">
-              <li class="list-group-item d-flex justify-content-between align-items-start">
+              <li class="list-group-item d-flex justify-content-between align-items-start" v-for="item in learderData">
                 <div class="ms-2 me-auto">
-                  <div class="fw-bold">趙德柱</div>
+                  <div class="fw-bold">{{item.name}}</div>
                 </div>
-                <span class="badge bg-primary rounded-pill">600</span>
-              </li>
-              <li class="list-group-item d-flex justify-content-between align-items-start">
-                <div class="ms-2 me-auto">
-                  <div class="fw-bold">蔡華岳</div>
-                </div>
-                <span class="badge bg-primary rounded-pill">550</span>
+                <span class="badge bg-primary rounded-pill">{{item.score}}</span>
               </li>
             </ol>
           </div>
@@ -77,7 +71,23 @@
       </div>
     </div>
   </div>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
   <script>
+    // Firebase 設置
+    const firebaseConfig = {
+      apiKey: "AIzaSyC4IfYAZRkSHuuJ-6wS2j8Xp2pO_zsSl4U",
+      authDomain: "snakegame-84c25.firebaseapp.com",
+      databaseURL: "https://snakegame-84c25-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "snakegame-84c25",
+      storageBucket: "snakegame-84c25.appspot.com",
+      messagingSenderId: "733178801750",
+      appId: "1:733178801750:web:5c8b2e618b5066040bd5f7"
+    };
+    // 初始化資料庫
+    firebase.initializeApp(firebaseConfig);
+    // 初始化Realtime Database與獲取對服務的引用
+    const database = firebase.database();
     // 生產向量
     const Vector = function (x, y) {
       this.x = x || 0;
@@ -96,6 +106,7 @@
       el: '#app',
       data: {
         score: 0,
+        // 遊戲參數
         Game: {
           bw: 12, // 格子大小
           bs: 2, // 格子間距
@@ -107,6 +118,7 @@
           start: false, // 遊戲開關
           pause: false, // 暫停
         },
+        // 蛇物件
         Snake: {
           body: [], // 蛇身位置存放空間
           maxLength: 5, // 蛇身長度
@@ -119,8 +131,33 @@
           height: 0, // 畫布高
           ctx: {}, // 畫布本體
         },
+        Quota: 10, // 上榜名額
+        // 風雲榜
+        learderData: [
+          {
+            name: "資料庫上無數據",
+            score: 0
+          },
+        ]
       },
       methods: {
+        // 取得資料庫資料
+        getDatabase() {
+          const that = this;
+          database.ref("/players").get().then((snapshot) => {
+            if (snapshot.exists()) {
+              let eachData = [];
+              snapshot.forEach(function (item) {
+                eachData.push(item.val());
+              });
+              that.learderData = eachData
+            } else {
+              console.log("沒有可用數據！");
+            }
+          }).catch((error) => {
+            console.error(error);
+          });
+        },
         // 蛇身刷新
         snakeUpdate() {
           let newHead = this.Snake.head.add(this.Snake.speed); // 蛇頭位置
@@ -151,13 +188,14 @@
         // 遊戲環境初始化
         init() {
           const canvas = this.$refs['canvas_id']; // 取得HTML物件：畫布
-          canvas.width = this.Game.bw * this.Game.gameWidth + this.Game.bs * (this.Game.gameWidth - 1); // 畫布長
+          // 畫布長
+          canvas.width = this.Game.bw * this.Game.gameWidth + this.Game.bs * (this.Game.gameWidth - 1);
           canvas.height = canvas.width; // 畫布高
           // 存入vue data
           this.Canvas.width = canvas.width;
           this.Canvas.height = canvas.height;
           this.Canvas.ctx = canvas.getContext('2d'); // 指定畫布
-          this.render(); // 渲染畫布
+          this.render(); // 渲染
           this.generateFood(); // 產生食物
           this.update(); // 刷新
         },
@@ -220,7 +258,8 @@
             r++;
             _this.Canvas.ctx.strokeStyle = 'rgba(255,0,0,' + (100 - r) / 100 + ')'; // 圖形輪廓顏色
             _this.Canvas.ctx.beginPath(); // 開啟繪圖
-            _this.Canvas.ctx.arc(pos.x + _this.Game.bw / 2, pos.y + _this.Game.bw / 2, r, 0, Math.PI * 2); // 創建圓形
+            // 創建圓形
+            _this.Canvas.ctx.arc(pos.x + _this.Game.bw / 2, pos.y + _this.Game.bw / 2, r, 0, Math.PI * 2);
             _this.Canvas.ctx.stroke(); // 繪製漸變色
             // 渲染食物光標
             if (r < 100) requestAnimationFrame(effect);
@@ -298,18 +337,46 @@
           this.playSound('E2', -10, 200);
           this.playSound('A2', 10, 400);
           setTimeout(function () {
-            const userName = prompt('您的分數為：' + that.score + '\n請輸入您的大名：').trim()
-            if (userName != "" && userName != null) {
-              // 觸動資料庫
-              console.log("使用者名稱：" + userName);
-              console.log("分數為" + that.score);
+            // 紀錄分數方法
+            function recordScore() {
+              // 玩家登入
+              const playerName = prompt('您的分數為：' + that.score + '\n請輸入您的大名：');
+              // 判斷是否為空值
+              if (playerName != null && playerName.trim() != "") {
+                // 紀錄玩家數據
+                let result = that.learderData;
+                result.push({
+                  name: playerName,
+                  score: that.score
+                });
+                // 排序
+                result = result.sort(function (a, b) {
+                  return a.score > b.score ? -1 : 1
+                });
+                // 保持10名
+                while (result.length > that.Quota) {
+                  result.pop();
+                };
+                // 觸動資料庫實施登載
+                database.ref('/players').set(result);
+              };
+            };
+            // 判斷分數是否值得載入資料庫(1.名額10人。2.分數大於最小值。)
+            if (that.learderData.length < that.Quota) {
+              recordScore();
+            } else {
+              if (that.score > Math.min(...that.learderData.map(item => item.score))) {
+                recordScore();
+              }
             }
+            that.getDatabase(); // 更新風雲榜資料
           }, 500);
         },
       },
       mounted() {
         const that = this; // 調用vue data
-        this.init();
+        this.init(); // 遊戲初始化
+        this.getDatabase();  // 取得風雲榜資料
         // 監聽鍵盤事件，方向鍵控制
         document.addEventListener('keydown', function (e) {
           let res;
